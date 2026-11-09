@@ -1,0 +1,71 @@
+name: Publish rdweb test to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pinned independent rdweb client source
+        uses: actions/checkout@v4
+        with:
+          repository: bropines/rdweb
+          ref: bdb92fae6c32d175e7633c6c68c4279ee9a994ba
+          path: upstream
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: upstream/package-lock.json
+
+      - name: Install locked dependencies
+        working-directory: upstream
+        run: npm ci
+
+      - name: Build client library
+        working-directory: upstream
+        run: npm run build
+
+      - name: Set GitHub Pages base path
+        working-directory: upstream
+        run: |
+          sed -i 's|base: "/rdweb/"|base: "/rustdesk-web-test/"|' app/vite.config.ts
+          grep -Fq 'base: "/rustdesk-web-test/"' app/vite.config.ts
+
+      - name: Build static web application
+        working-directory: upstream
+        run: npm run build:app
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: upstream/app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
